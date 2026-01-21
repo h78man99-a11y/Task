@@ -11,11 +11,11 @@ from flask import Flask
 # ======================================================
 # CONFIGURATION (Fetched from Render Env Vars)
 # ======================================================
-ACCESS_TOKEN = os.getenv("Bearer eyJhbGciOiJSUzI1NiJ9.eyJzZXNzaW9uIjp7InNlc3Npb25JZCI6ImFiNTE4MWU2LTk3MjgtNDAwZC04MmY3LThkYjhiZTU4MWJmYiIsImNsaWVudE5hbWUiOiJ3ZWJfY2xpZW50Iiwicm9sZXMiOlt7Im5hbWUiOiJST0xFX0NVU1RPTUVSR1JPVVAifV19LCJ0eXBlIjoicmVmcmVzaCIsInRlbmFudElkIjoiU0hFSU4iLCJzdWIiOiJzaGVpbl9tYW5pc2hpc2poMkBnbWFpbC5jb20iLCJleHAiOjE3ODQ1NTExMTUsImlhdCI6MTc2ODk5OTExNX0.RPA2gA7iLynqJiWyJqOb1kMAbjKsIhh21xmocrScpD-qlGs9NnZY0gAji7otra2PIFO1H41-EBo1kdm5gwKtsMcsm187OqbfVFQGXk25tJOi0YPgCQnSqggGEP_qRlgld-1lB-fJ0VITxmMpPi-BI1eC4BQbGRGzKT1OqrDpWk88TLjFtBeHEn81QP6mS7fC50xFcsnj7XWjr6q_sVH5YSvIgyBMABDsnyI1mWEru2CRY47l6iJduInODXsForwkNXbDe9FY5vESB5IlD-0Z0xLKJDTp_HVc5V6QFo5bgB6e6DHY_ybkzY5IU17n7tW6pPpgw5GNwn6GrACCrhzsjg")
-CART_ID = os.getenv("SH7315703937")
-EMAIL = os.getenv("manishisjh2@gmail.com")
-BOT_TOKEN = os.getenv("7960235034:AAGspuayD8vd-CnAkGp1LjpUv2RhcoopqKU")
-CHAT_ID = os.getenv("7177581474")
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+CART_ID = os.getenv("CART_ID")
+EMAIL = os.getenv("EMAIL")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 app = Flask(__name__)
 
@@ -66,7 +66,7 @@ def checker_loop():
     send_tg(f"🚀 *Render Bot Online!* Starting checks for account: {EMAIL}")
 
     api_url = f"https://api.sheinindia.in/rilfnlwebservices/v2/rilfnl/users/{EMAIL}/carts/{CART_ID}/vouchers"
-    prefix = "SVI"
+    prefix = "SVD"
     chars = string.ascii_uppercase + string.digits
 
     while True:
