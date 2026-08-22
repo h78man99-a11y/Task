@@ -22,7 +22,7 @@ While Semester-IV is not listed, the original bot sends a live-status heartbeat 
 
 The second script is `catalog_bot.py`. It monitors **2026 → May → CBGS New (College Courses)**, reads all available course/class options, and reads the semester options under every course.
 
-The first scan creates a baseline. Existing entries in that first scan are not reported. On later scans, the bot sends an alert only when it detects either a course/class code that was not in the previous snapshot or a semester option newly added under an already-known course.
+The first automatic scan starts about 10 seconds after the bot launches and creates a baseline. Existing entries in that first scan are not reported. Later automatic scans run at the configured interval and send an alert only when they detect either a course/class code that was not in the previous snapshot or a semester option newly added under an already-known course.
 
 Therefore, a newly listed B.Com Semester-IV, a newly listed B.A. class, or a new semester under any previously listed course can trigger an alert. The message identifies the course name and code; for a new course it also lists the exact semesters currently shown under that course, and for a new semester it identifies the exact semester name. This monitor does not submit roll numbers or retrieve student marks.
 
@@ -84,14 +84,17 @@ Optional variables for the catalog mode are:
 
 ```text
 CATALOG_SCAN_INTERVAL_SECONDS=3600
+CATALOG_HEARTBEAT_INTERVAL_SECONDS=3600
 CATALOG_REQUEST_DELAY_SECONDS=0.2
 TELEGRAM_CHAT_IDS=123456789
 CATALOG_STATE_FILE=catalog_state.json
 ```
 
-The original result check is clamped to at least five minutes. The original heartbeat is clamped to at least one hour. The catalog scan is clamped to at least 15 minutes. These defaults keep requests and resource usage light.
+The catalog bot sends its first live-status heartbeat about one minute after startup and then sends one automatically every hour. The heartbeat tells you that the bot is live, gives the last automatic scan time, and reports whether a new class/semester was found. It is sent to the chat subscribed with `/start` or listed in `TELEGRAM_CHAT_IDS`.
 
-Deploy the service as an **always-running worker**, not as a Railway Cron Job. The Telegram bot uses long polling and must remain running. After deployment, inspect the logs for `Starting GNDU` and send `/start` to the correct Telegram bot.
+The original result check is clamped to at least five minutes. The original heartbeat is clamped to at least one hour. The catalog scan is clamped to at least 15 minutes, and the catalog heartbeat is clamped to at least one hour. These defaults keep requests and resource usage light.
+
+Deploy the service as an **always-running worker**, not as a Railway Cron Job. The Telegram bot uses long polling and must remain running. After deployment, inspect the logs for `Starting GNDU`, `Automatic jobs scheduled`, `Automatic catalog scan starting`, and `Automatic hourly heartbeat starting`. Send `/start` to the correct Telegram bot. You should not need to type `/scan` for normal monitoring; `/scan` is only a manual test command.
 
 ## State persistence
 

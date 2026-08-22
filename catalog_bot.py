@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,7 @@ def env_float(name: str, default: float, minimum: float) -> float:
 
 
 SCAN_INTERVAL_SECONDS = env_int("CATALOG_SCAN_INTERVAL_SECONDS", 3600, 900)
+HEARTBEAT_INTERVAL_SECONDS = env_int("CATALOG_HEARTBEAT_INTERVAL_SECONDS", 3600, 3600)
 REQUEST_DELAY_SECONDS = env_float("CATALOG_REQUEST_DELAY_SECONDS", 0.2, 0.0)
 
 checker = GNDUCatalogChecker(request_delay_seconds=REQUEST_DELAY_SECONDS)
@@ -57,6 +59,9 @@ def empty_state() -> dict[str, Any]:
         "events": {},
         "delivered": {},
         "last_scan": None,
+        "last_scan_summary": None,
+        "last_scan_new_entries": 0,
+        "last_heartbeat": None,
         "last_error": None,
     }
 
@@ -72,6 +77,12 @@ def load_state() -> dict[str, Any]:
         state["events"] = raw.get("events", {}) if isinstance(raw.get("events", {}), dict) else {}
         state["delivered"] = raw.get("delivered", {}) if isinstance(raw.get("delivered", {}), dict) else {}
         state["last_scan"] = raw.get("last_scan")
+        state["last_scan_summary"] = raw.get("last_scan_summary")
+        try:
+            state["last_scan_new_entries"] = max(int(raw.get("last_scan_new_entries", 0)), 0)
+        except (TypeError, ValueError):
+            state["last_scan_new_entries"] = 0
+        state["last_heartbeat"] = raw.get("last_heartbeat")
         state["last_error"] = raw.get("last_error")
         return state
     except (OSError, ValueError, TypeError) as exc:
@@ -114,6 +125,10 @@ def remove_subscriber(chat_id: int) -> None:
     state = load_state()
     state["subscribers"] = [item for item in state["subscribers"] if item != chat_id]
     save_state(state)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def normalise(value: str) -> str:
@@ -243,6 +258,12 @@ async def run_scan(application: Application) -> CatalogCheckResult:
         current_state = load_state()
         result = await asyncio.to_thread(checker.check, current_state.get("snapshot"))
         current_state["last_scan"] = result.checked_at_utc
+        current_state["last_scan_summary"] = result.reason
+        current_state["last_scan_new_entries"] = (
+            len(result.new_courses or []) + len(result.new_semesters or [])
+            if result.ok
+            else 0
+        )
         current_state["last_error"] = None if result.ok else result.reason
 
         if result.ok and result.snapshot is not None:
@@ -258,13 +279,68 @@ async def run_scan(application: Application) -> CatalogCheckResult:
         return result
 
 
+def heartbeat_message(state: dict[str, Any]) -> str:
+    last_scan = state.get("last_scan") or "No completed scan yet"
+    last_error = state.get("last_error")
+    new_entries = int(state.get("last_scan_new_entries", 0) or 0)
+
+    if last_error:
+        status = (
+            "The latest automatic scan could not be completed. The bot is still live "
+            "and will retry automatically."
+        )
+    elif not state.get("last_scan"):
+        status = "The first automatic catalog scan has not completed yet; it will run automatically."
+    elif new_entries:
+        status = (
+            f"The latest automatic scan detected {new_entries} new class/semester option(s). "
+            "The bot has sent the corresponding alert when delivery was possible."
+        )
+    else:
+        status = (
+            "The latest automatic scan found no new class or semester result option, "
+            "so no new result entry is listed yet."
+        )
+
+    return (
+        "<b>GNDU catalog bot is live</b>\n\n"
+        "Automatic monitoring is running for 2026 May CBGS New.\n"
+        f"{status}\n\n"
+        f"Last automatic scan (UTC): {escape(str(last_scan))}\n"
+        f"Next scan interval: {SCAN_INTERVAL_SECONDS} seconds\n"
+        "This live-status message is sent automatically every hour."
+    )
+
+
+async def send_heartbeat(application: Application) -> None:
+    current_state = load_state()
+    message = heartbeat_message(current_state)
+    delivered = 0
+    for chat_id in sorted(all_subscribers(current_state)):
+        try:
+            await application.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            delivered += 1
+        except Exception as exc:
+            logger.warning("Could not send automatic heartbeat to chat %s: %s", chat_id, exc)
+
+    current_state["last_heartbeat"] = utc_now()
+    save_state(current_state)
+    logger.info("Automatic hourly heartbeat attempted for %s subscriber chat(s)", delivered)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
     add_subscriber(update.effective_chat.id)
     await update.message.reply_text(
         "You are subscribed to all-class GNDU updates. I will monitor 2026 May CBGS New and alert you when a new course/class or a new semester is added.\n\n"
-        "The first scan creates a baseline, so existing entries are not reported as new.\n\n"
+        "The first scan creates a baseline, so existing entries are not reported as new.\n"
+        "I will also send an automatic live-status message every hour.\n\n"
         "Commands:\n"
         "/scan — scan immediately\n"
         "/status — show scan status\n"
@@ -295,6 +371,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Catalog currently contains: {courses} courses/classes and {semesters} semester options\n"
         f"Detected update events retained: {pending}\n"
         f"Scan interval: {SCAN_INTERVAL_SECONDS} seconds\n"
+        f"Last automatic heartbeat (UTC): {current.get('last_heartbeat') or 'Not sent yet.'}\n"
+        f"Latest scan summary: {current.get('last_scan_summary') or 'No scan completed yet.'}\n"
         f"Latest error: {current.get('last_error') or 'none'}"
     )
 
@@ -315,7 +393,13 @@ async def scan_now(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def periodic_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Automatic catalog scan starting")
     await run_scan(context.application)
+
+
+async def periodic_heartbeat(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Automatic hourly heartbeat starting")
+    await send_heartbeat(context.application)
 
 
 async def post_init(application: Application) -> None:
@@ -327,6 +411,17 @@ async def post_init(application: Application) -> None:
         interval=SCAN_INTERVAL_SECONDS,
         first=10,
         name="gndu-catalog-scan",
+    )
+    application.job_queue.run_repeating(
+        periodic_heartbeat,
+        interval=HEARTBEAT_INTERVAL_SECONDS,
+        first=60,
+        name="gndu-catalog-hourly-heartbeat",
+    )
+    logger.info(
+        "Automatic jobs scheduled: catalog scan every %ss; heartbeat every %ss (first heartbeat in 60s)",
+        SCAN_INTERVAL_SECONDS,
+        HEARTBEAT_INTERVAL_SECONDS,
     )
 
 
@@ -344,5 +439,9 @@ def build_application() -> Application:
 
 if __name__ == "__main__":
     app = build_application()
-    logger.info("Starting GNDU catalog alert bot; scan_interval=%ss", SCAN_INTERVAL_SECONDS)
+    logger.info(
+        "Starting GNDU catalog alert bot; scan_interval=%ss heartbeat_interval=%ss",
+        SCAN_INTERVAL_SECONDS,
+        HEARTBEAT_INTERVAL_SECONDS,
+    )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
