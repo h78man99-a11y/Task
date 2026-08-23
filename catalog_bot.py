@@ -44,7 +44,9 @@ def env_float(name: str, default: float, minimum: float) -> float:
         return default
 
 
-SCAN_INTERVAL_SECONDS = env_int("CATALOG_SCAN_INTERVAL_SECONDS", 3600, 900)
+# The catalog monitor checks at least every 30 minutes. An existing Railway variable
+# named CATALOG_SCAN_INTERVAL_SECONDS still takes precedence, so set it to 1800.
+SCAN_INTERVAL_SECONDS = env_int("CATALOG_SCAN_INTERVAL_SECONDS", 1800, 1800)
 HEARTBEAT_INTERVAL_SECONDS = env_int("CATALOG_HEARTBEAT_INTERVAL_SECONDS", 3600, 3600)
 REQUEST_DELAY_SECONDS = env_float("CATALOG_REQUEST_DELAY_SECONDS", 0.2, 0.0)
 
@@ -237,6 +239,7 @@ async def send_new_entry_alerts(application: Application, state: dict[str, Any])
                     text=text,
                     parse_mode=ParseMode.HTML,
                     disable_web_page_preview=True,
+                    disable_notification=False,
                 )
                 delivered.update(unsent_keys)
                 state.setdefault("delivered", {})[str(chat_id)] = sorted(delivered)
@@ -323,6 +326,7 @@ async def send_heartbeat(application: Application) -> None:
                 text=message,
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
+                disable_notification=True,
             )
             delivered += 1
         except Exception as exc:
@@ -415,12 +419,13 @@ async def post_init(application: Application) -> None:
     application.job_queue.run_repeating(
         periodic_heartbeat,
         interval=HEARTBEAT_INTERVAL_SECONDS,
-        first=60,
+        first=HEARTBEAT_INTERVAL_SECONDS,
         name="gndu-catalog-hourly-heartbeat",
     )
     logger.info(
-        "Automatic jobs scheduled: catalog scan every %ss; heartbeat every %ss (first heartbeat in 60s)",
+        "Automatic jobs scheduled: catalog scan every %ss; heartbeat every %ss (first heartbeat in %ss)",
         SCAN_INTERVAL_SECONDS,
+        HEARTBEAT_INTERVAL_SECONDS,
         HEARTBEAT_INTERVAL_SECONDS,
     )
 
