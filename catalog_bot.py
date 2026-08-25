@@ -46,8 +46,8 @@ def env_float(name: str, default: float, minimum: float) -> float:
 
 # The catalog monitor checks at least every 30 minutes. An existing Railway variable
 # named CATALOG_SCAN_INTERVAL_SECONDS still takes precedence, so set it to 1800.
-SCAN_INTERVAL_SECONDS = env_int("CATALOG_SCAN_INTERVAL_SECONDS", 1800, 1800)
-HEARTBEAT_INTERVAL_SECONDS = env_int("CATALOG_HEARTBEAT_INTERVAL_SECONDS", 3600, 3600)
+SCAN_INTERVAL_SECONDS = env_int("CATALOG_SCAN_INTERVAL_SECONDS", 1800, 300)
+HEARTBEAT_INTERVAL_SECONDS = env_int("CATALOG_HEARTBEAT_INTERVAL_SECONDS", 20000, 3600)
 REQUEST_DELAY_SECONDS = env_float("CATALOG_REQUEST_DELAY_SECONDS", 0.2, 0.0)
 
 checker = GNDUCatalogChecker(request_delay_seconds=REQUEST_DELAY_SECONDS)
